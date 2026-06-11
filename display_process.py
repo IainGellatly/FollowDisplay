@@ -32,6 +32,14 @@ screen = pygame.display.set_mode(
 pygame.display.set_caption(SCREEN_TITLE)
 clock = pygame.time.Clock()
 FONT = pygame.font.Font("copperplate_gothic_bold140_75.ttf", 420)
+DIGIT_SURFACES = {}
+
+for digit in "0123456789":
+    DIGIT_SURFACES[digit] = FONT.render(
+        digit,
+        True,
+        (255, 255, 255)
+    )
 
 # --- LOAD SOUNDS ---
 wheel_sound = pygame.mixer.Sound(WHEEL_SOUND_FILE)
@@ -45,53 +53,18 @@ redis_client = redis.Redis(
     decode_responses=True
 )
 
-# ---------------- DIGIT ---------------- #
-class Digit:
-    surface_cache = {}
 
-    def __init__(self, value, x, y):
-        self.value = value
-        self.x = x
-        self.y = y
-        if value not in Digit.surface_cache:
-            Digit.surface_cache[value] = FONT.render(value, True, (255, 255, 255))
-
-        self.base_surface = Digit.surface_cache[value]
-        self.rect = self.base_surface.get_rect(center=(self.x, self.y))
-
-    def set_value(self, value):
-        if self.value != value:
-            self.value = value
-            if value not in Digit.surface_cache:
-                Digit.surface_cache[value] = FONT.render(value, True, (255, 255, 255))
-            self.base_surface = Digit.surface_cache[value]
-
-    def update_position(self, y):
-        self.y = y
-        self.rect.center = (self.x, self.y)
-
-    def draw(self, screen):
-        screen.blit(self.base_surface, self.rect)
-
-# ---------------- WHEEL ---------------- #
+# ------------------ WHEEL ------------------ #
 class WheelColumn:
-    def __init__(self, x):
-        self.digits = []
-        self.x = x
-        total_digits = 20
-        start_y = SCREEN_HEIGHT // 2
-        for i in range(total_digits):
-            digit = str(i % 10)
-            y = start_y + i * DIGIT_HEIGHT
-            self.digits.append(Digit(digit, x, y))
 
-        self.total_height = total_digits * DIGIT_HEIGHT
-        self.current_offset = 0
-        self.start_offset = 0
-        self.target_offset = 0
-        self.timer = 0
+    def __init__(self, x):
+        self.x = x
+        self.current_offset = 0.0
+        self.start_offset = 0.0
+        self.target_offset = 0.0
+        self.timer = 0.0
         self.duration = 1.0
-        self.delay = 0
+        self.delay = 0.0
         self.state = "idle"
 
     def is_animating(self):
@@ -102,25 +75,27 @@ class WheelColumn:
 
     def start_roll(self, target_digit, delay, duration):
         self.start_offset = self.current_offset
-        current_digit = int(round(self.current_offset / DIGIT_HEIGHT)) % 10
-        delta_digits = (target_digit - current_digit) % 10
+        current_digit = (
+            int(self.current_offset / DIGIT_HEIGHT)
+            % 10
+        )
+        delta_digits = (
+            target_digit - current_digit
+        ) % 10
         total_digits = delta_digits + 10
-        self.target_offset = self.start_offset + total_digits * DIGIT_HEIGHT
+        self.target_offset = (
+            self.start_offset +
+            total_digits * DIGIT_HEIGHT
+        )
         self.timer = 0
         self.duration = duration
         self.delay = delay
         self.state = "waiting"
 
     def snap_to_digit(self, target_digit):
-        center_y = SCREEN_HEIGHT // 2
-
-        for i, digit in enumerate(self.digits):
-            value = str(i % 10)
-            digit.set_value(value)
-            offset_index = (i - target_digit) % 10
-            digit.update_position(center_y + offset_index * DIGIT_HEIGHT)
-
-        self.current_offset = target_digit * DIGIT_HEIGHT
+        self.current_offset = (
+            target_digit * DIGIT_HEIGHT
+        )
         self.state = "idle"
 
     def update(self, delta_time):
@@ -134,28 +109,26 @@ class WheelColumn:
             self.timer += delta_time
             t = min(self.timer / self.duration, 1.0)
             eased = self.ease_out_quad(t)
-            new_offset = (
+            self.current_offset = (
                 self.start_offset +
                 (self.target_offset - self.start_offset) * eased
             )
-            delta = new_offset - self.current_offset
-            self.current_offset = new_offset
-            for digit in self.digits:
-                digit.update_position(digit.y - delta)
-
             if t >= 1.0:
+                self.current_offset = self.target_offset
                 self.state = "idle"
 
-        for digit in self.digits:
-            if digit.y < -DIGIT_HEIGHT:
-                digit.update_position(digit.y + self.total_height)
-            elif digit.y > SCREEN_HEIGHT + DIGIT_HEIGHT:
-                digit.update_position(digit.y - self.total_height)
-
     def draw(self, screen):
-        for digit in self.digits:
-            if -DIGIT_HEIGHT < digit.y < SCREEN_HEIGHT + DIGIT_HEIGHT:
-                digit.draw(screen)
+        center_y = SCREEN_HEIGHT // 2
+        wheel_pos = self.current_offset /DIGIT_HEIGHT
+        base_index = int(wheel_pos)
+        frac = wheel_pos - base_index
+        for offset in range(-1, 3):
+            digit_num = (base_index + offset) % 10
+            digit = str(digit_num)
+            y = center_y + (offset - frac) * DIGIT_HEIGHT
+            surface = DIGIT_SURFACES[digit]
+            rect = surface.get_rect(center=(self.x, y))
+            screen.blit(surface, rect)
 
 
 # ---------------- DISPLAY ---------------- #
@@ -260,7 +233,7 @@ def control_knobs(volume_queue):
 def main():
     odometer = OdometerDisplay()
     value = 12345
-    odometer.set_value(value, animate=True)
+    odometer.set_value(value, animate=False)
     volume_queue = queue.Queue()
 
     # restore threads
@@ -351,10 +324,11 @@ def main():
 
             value = current_value
 
-
     pygame.quit()
     sys.exit()
 
 
 if __name__ == "__main__":
     main()
+
+# end of file
